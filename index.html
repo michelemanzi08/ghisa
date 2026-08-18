@@ -14,6 +14,9 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <style>
   :root{
     --bg:#F7F6F3;
@@ -321,6 +324,72 @@
     margin-bottom:14px;
   }
 
+  .feedback{
+    background:var(--accent-soft);
+    border:1px solid #BFE0D8;
+    border-radius:var(--radius-md);
+    padding:14px;
+    margin-bottom:14px;
+  }
+  .feedback__summary{font-weight:600;font-size:13.5px;color:#175A51;}
+  .feedback__line{font-size:13px;color:#1F4F47;line-height:1.5;margin-top:8px;}
+
+  .auth-screen{
+    min-height:100vh;
+    min-height:100dvh;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:24px;
+  }
+  .auth-card{
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:var(--radius-lg);
+    box-shadow:var(--shadow);
+    padding:28px 22px;
+    width:100%;
+    max-width:360px;
+  }
+  .auth-card__brand{
+    font-family:var(--font-display);
+    font-weight:700;
+    font-size:24px;
+    letter-spacing:0.14em;
+    text-align:center;
+    margin-bottom:6px;
+  }
+  .auth-card__brand span{color:var(--accent);}
+  .auth-card__sub{
+    font-size:13px;
+    color:var(--text-muted);
+    text-align:center;
+    margin:0 0 20px;
+    line-height:1.5;
+  }
+  .auth-card .field{margin-bottom:14px;}
+  .auth-card .btn{margin-bottom:10px;}
+  .auth-card__error{
+    font-size:12.5px;
+    color:var(--danger);
+    margin-bottom:12px;
+    min-height:16px;
+    line-height:1.4;
+  }
+  .auth-card__link{
+    display:block;
+    width:100%;
+    background:none;
+    border:none;
+    color:var(--text-muted);
+    font-family:var(--font-mono);
+    font-size:11.5px;
+    text-decoration:underline;
+    cursor:pointer;
+    padding:4px;
+    text-align:center;
+  }
+
   details.plan-day{
     background:var(--surface);
     border:1px solid var(--border);
@@ -448,6 +517,18 @@
 </style>
 </head>
 <body>
+<div id="authScreen" class="auth-screen" style="display:none;">
+  <div class="auth-card">
+    <div class="auth-card__brand">GHI<span>S</span>A</div>
+    <p class="auth-card__sub">Accedi per sincronizzare i tuoi allenamenti su tutti i dispositivi.</p>
+    <div class="field"><label>Email</label><input type="email" id="authEmail" autocomplete="username" /></div>
+    <div class="field"><label>Password</label><input type="password" id="authPassword" autocomplete="current-password" /></div>
+    <div class="auth-card__error" id="authError"></div>
+    <button type="button" class="btn btn--primary" id="authLoginBtn">Accedi</button>
+    <button type="button" class="btn btn--ghost" id="authRegisterBtn">Crea account</button>
+    <button type="button" class="auth-card__link" id="authResetBtn">Password dimenticata?</button>
+  </div>
+</div>
 <div id="app">
   <header class="topbar">
     <div class="topbar__brand">GHI<span>S</span>A</div>
@@ -474,6 +555,27 @@
 (function(){
   "use strict";
 
+  /* ======= CONFIGURAZIONE FIREBASE =======
+     Sostituisci i valori qui sotto con quelli del tuo progetto
+     (Project settings > General > Your apps, dopo aver registrato una Web app).
+     Finché restano "INCOLLA_QUI", l'app funziona comunque, solo senza sincronizzazione cloud. */
+  var firebaseConfig = {
+    apiKey: "AIzaSyAaurYQXXHdGJn-9n6A8T03XyMLRWURd2I",
+    authDomain: "ghisa-1a0ab.firebaseapp.com",
+    projectId: "ghisa-1a0ab",
+    storageBucket: "ghisa-1a0ab.firebasestorage.app",
+    messagingSenderId: "202815854419",
+    appId: "1:202815854419:web:ae45a65a1334867ca3b3a6"
+  };
+  var cloudEnabled = firebaseConfig.apiKey.indexOf("INCOLLA_QUI") === -1;
+  var auth = null, db = null, currentUser = null, unsubscribeSnapshot = null;
+  if(cloudEnabled){
+    firebase.initializeApp(firebaseConfig);
+    auth = firebase.auth();
+    db = firebase.firestore();
+    try{ db.enablePersistence({synchronizeTabs:true}); }catch(e){ /* niente panico, resta comunque tutto salvato in locale */ }
+  }
+
   var memCache = {};
   function loadJSON(key, fallback){
     try{
@@ -494,49 +596,49 @@
     upperA: {
       label:"Upper A", sub:"Spinta dominante",
       exercises:[
-        {name:"Trazioni presa prona larga", sets:4, target:"max (6-10)", unit:"reps", rest:"90\u2033", note:"Se non arrivi a 6, fai negative lente da 4-5\u2033", defaultWeight:null},
-        {name:"Dip (busto inclinato avanti)", sets:4, target:"8-12", unit:"reps", rest:"90\u2033", note:"Focus petto", defaultWeight:null},
-        {name:"Panca piana con manubri", sets:4, target:"12-15", unit:"reps", rest:"75\u2033", note:"Tempo 3-1-1, oppure un braccio alla volta", defaultWeight:10},
-        {name:"Military press manubri in piedi", sets:3, target:"12-15", unit:"reps", rest:"60\u2033", note:"", defaultWeight:10},
-        {name:"Curl bicipiti allo scott", sets:3, target:"12-15", unit:"reps", rest:"60\u2033", note:"Fermo 1\u2033 in contrazione", defaultWeight:10},
-        {name:"French press manubrio dietro nuca", sets:3, target:"12-15", unit:"reps", rest:"60\u2033", note:"A due mani o alternato", defaultWeight:10},
-        {name:"Alzate laterali", sets:3, target:"15-20", unit:"reps", rest:"45\u2033", note:"Controllo massimo", defaultWeight:10}
+        {name:"Trazioni presa prona larga", sets:4, target:"max (6-10)", unit:"reps", rest:"90″", note:"Se non arrivi a 6, fai negative lente da 4-5″", defaultWeight:null},
+        {name:"Dip (busto inclinato avanti)", sets:4, target:"8-12", unit:"reps", rest:"90″", note:"Focus petto", defaultWeight:null},
+        {name:"Panca piana con manubri", sets:4, target:"12-15", unit:"reps", rest:"75″", note:"Tempo 3-1-1, oppure un braccio alla volta", defaultWeight:10},
+        {name:"Military press manubri in piedi", sets:3, target:"12-15", unit:"reps", rest:"60″", note:"", defaultWeight:10},
+        {name:"Curl bicipiti allo scott", sets:3, target:"12-15", unit:"reps", rest:"60″", note:"Fermo 1″ in contrazione", defaultWeight:10},
+        {name:"French press manubrio dietro nuca", sets:3, target:"12-15", unit:"reps", rest:"60″", note:"A due mani o alternato", defaultWeight:10},
+        {name:"Alzate laterali", sets:3, target:"15-20", unit:"reps", rest:"45″", note:"Controllo massimo", defaultWeight:10}
       ]
     },
     lowerA: {
       label:"Lower A", sub:"Gambe + core",
       exercises:[
-        {name:"Bulgarian split squat (piede dietro su panca)", sets:4, target:"10-12/gamba", unit:"reps", rest:"75\u2033", note:"Il monolaterale \u00e8 il tuo carico extra", defaultWeight:10},
-        {name:"Goblet squat", sets:4, target:"15-20", unit:"reps", rest:"75\u2033", note:"", defaultWeight:10},
-        {name:"Affondi camminati con manubri", sets:3, target:"12/gamba", unit:"reps", rest:"60\u2033", note:"", defaultWeight:10},
-        {name:"Hip thrust (spalle su panca)", sets:3, target:"15-20", unit:"reps", rest:"60\u2033", note:"Manubrio sul bacino se riesci", defaultWeight:null},
-        {name:"Polpacci in piedi con manubri", sets:4, target:"20", unit:"reps", rest:"45\u2033", note:"", defaultWeight:10},
-        {name:"Plank", sets:3, target:"45-60\u2033", unit:"sec", rest:"45\u2033", note:"", defaultWeight:null},
-        {name:"Leg raise", sets:3, target:"15-20", unit:"reps", rest:"45\u2033", note:"", defaultWeight:null}
+        {name:"Bulgarian split squat (piede dietro su panca)", sets:4, target:"10-12/gamba", unit:"reps", rest:"75″", note:"Il monolaterale è il tuo carico extra", defaultWeight:10},
+        {name:"Goblet squat", sets:4, target:"15-20", unit:"reps", rest:"75″", note:"", defaultWeight:10},
+        {name:"Affondi camminati con manubri", sets:3, target:"12/gamba", unit:"reps", rest:"60″", note:"", defaultWeight:10},
+        {name:"Hip thrust (spalle su panca)", sets:3, target:"15-20", unit:"reps", rest:"60″", note:"Manubrio sul bacino se riesci", defaultWeight:null},
+        {name:"Polpacci in piedi con manubri", sets:4, target:"20", unit:"reps", rest:"45″", note:"", defaultWeight:10},
+        {name:"Plank", sets:3, target:"45-60″", unit:"sec", rest:"45″", note:"", defaultWeight:null},
+        {name:"Leg raise", sets:3, target:"15-20", unit:"reps", rest:"45″", note:"", defaultWeight:null}
       ]
     },
     upperB: {
       label:"Upper B", sub:"Trazione dominante",
       exercises:[
-        {name:"Trazioni presa supina stretta (chin-up)", sets:4, target:"6-10", unit:"reps", rest:"90\u2033", note:"Bicipiti + dorso", defaultWeight:null},
-        {name:"Rematore con manubrio, un braccio", sets:4, target:"12/braccio", unit:"reps", rest:"75\u2033", note:"Ginocchio e mano d'appoggio sulla panca", defaultWeight:10},
-        {name:"Dip presa stretta", sets:3, target:"10-12", unit:"reps", rest:"75\u2033", note:"Focus tricipiti", defaultWeight:null},
-        {name:"Panca inclinata con manubri", sets:4, target:"12-15", unit:"reps", rest:"75\u2033", note:"Regola lo schienale della panca", defaultWeight:10},
-        {name:"Curl a martello", sets:3, target:"12-15", unit:"reps", rest:"60\u2033", note:"", defaultWeight:10},
-        {name:"Alzate frontali", sets:3, target:"15", unit:"reps", rest:"45\u2033", note:"", defaultWeight:10},
-        {name:"Estensioni dorsali (superman)", sets:3, target:"15", unit:"reps", rest:"45\u2033", note:"", defaultWeight:null}
+        {name:"Trazioni presa supina stretta (chin-up)", sets:4, target:"6-10", unit:"reps", rest:"90″", note:"Bicipiti + dorso", defaultWeight:null},
+        {name:"Rematore con manubrio, un braccio", sets:4, target:"12/braccio", unit:"reps", rest:"75″", note:"Ginocchio e mano d'appoggio sulla panca", defaultWeight:10},
+        {name:"Dip presa stretta", sets:3, target:"10-12", unit:"reps", rest:"75″", note:"Focus tricipiti", defaultWeight:null},
+        {name:"Panca inclinata con manubri", sets:4, target:"12-15", unit:"reps", rest:"75″", note:"Regola lo schienale della panca", defaultWeight:10},
+        {name:"Curl a martello", sets:3, target:"12-15", unit:"reps", rest:"60″", note:"", defaultWeight:10},
+        {name:"Alzate frontali", sets:3, target:"15", unit:"reps", rest:"45″", note:"", defaultWeight:10},
+        {name:"Estensioni dorsali (superman)", sets:3, target:"15", unit:"reps", rest:"45″", note:"", defaultWeight:null}
       ]
     },
     lowerB: {
       label:"Lower B", sub:"Gambe + core",
       exercises:[
-        {name:"Step-up su panca con manubri", sets:4, target:"12/gamba", unit:"reps", rest:"75\u2033", note:"", defaultWeight:10},
-        {name:"Affondi inversi con manubri", sets:4, target:"10-12/gamba", unit:"reps", rest:"60\u2033", note:"", defaultWeight:10},
-        {name:"Squat sumo, un manubrio a goblet", sets:3, target:"15-20", unit:"reps", rest:"60\u2033", note:"Stance larga, punte fuori", defaultWeight:10},
-        {name:"Ponte a una gamba", sets:3, target:"12/gamba", unit:"reps", rest:"45\u2033", note:"", defaultWeight:null},
-        {name:"Polpacci (piedi rialzati)", sets:4, target:"20-25", unit:"reps", rest:"45\u2033", note:"", defaultWeight:10},
-        {name:"Russian twist", sets:3, target:"20", unit:"reps", rest:"45\u2033", note:"Con un manubrio se vuoi pi\u00f9 stimolo", defaultWeight:null},
-        {name:"Plank laterale", sets:3, target:"30-45\u2033/lato", unit:"sec", rest:"45\u2033", note:"", defaultWeight:null}
+        {name:"Step-up su panca con manubri", sets:4, target:"12/gamba", unit:"reps", rest:"75″", note:"", defaultWeight:10},
+        {name:"Affondi inversi con manubri", sets:4, target:"10-12/gamba", unit:"reps", rest:"60″", note:"", defaultWeight:10},
+        {name:"Squat sumo, un manubrio a goblet", sets:3, target:"15-20", unit:"reps", rest:"60″", note:"Stance larga, punte fuori", defaultWeight:10},
+        {name:"Ponte a una gamba", sets:3, target:"12/gamba", unit:"reps", rest:"45″", note:"", defaultWeight:null},
+        {name:"Polpacci (piedi rialzati)", sets:4, target:"20-25", unit:"reps", rest:"45″", note:"", defaultWeight:10},
+        {name:"Russian twist", sets:3, target:"20", unit:"reps", rest:"45″", note:"Con un manubrio se vuoi più stimolo", defaultWeight:null},
+        {name:"Plank laterale", sets:3, target:"30-45″/lato", unit:"sec", rest:"45″", note:"", defaultWeight:null}
       ]
     }
   };
@@ -545,8 +647,45 @@
   var state = {
     tab:"oggi",
     oggi:{ dayType:null, date: todayISO(), sets:{}, weights:{}, cardioMin:"", cardioNote:"" },
-    justSaved:false
+    justSaved:false,
+    lastFeedback:null
   };
+
+  function parseTargetRange(target){
+    var m = target.match(/(\d+)\s*-\s*(\d+)/);
+    if(m) return {min:parseInt(m[1],10), max:parseInt(m[2],10)};
+    var m2 = target.match(/(\d+)/);
+    if(m2){ var n=parseInt(m2[1],10); return {min:n, max:n}; }
+    return null;
+  }
+
+  function buildFeedback(day){
+    var analyzed = [];
+    day.exercises.forEach(function(ex, idx){
+      var raw = state.oggi.sets[idx] || [];
+      var nums = raw.map(function(v){ return parseFloat((v+"").replace(",", ".")); }).filter(function(n){ return !isNaN(n); });
+      if(!nums.length) return;
+      var avg = nums.reduce(function(a,b){return a+b;},0)/nums.length;
+      var range = parseTargetRange(ex.target);
+      if(!range) return;
+      var status = avg > range.max ? "exceeded" : (avg < range.min ? "below" : "on-track");
+      var delta = status==="exceeded" ? (avg-range.max) : (status==="below" ? (range.min-avg) : 0);
+      analyzed.push({name:ex.name, status:status, delta:delta});
+    });
+    if(!analyzed.length) return null;
+    var exceeded = analyzed.filter(function(a){return a.status==="exceeded";});
+    var below = analyzed.filter(function(a){return a.status==="below";});
+    var onTrack = analyzed.filter(function(a){return a.status==="on-track";});
+    var best = exceeded.length ? exceeded.reduce(function(p,c){return c.delta>p.delta?c:p;}) : null;
+    var watch = below.length ? below.reduce(function(p,c){return c.delta>p.delta?c:p;}) : null;
+    var goodCount = onTrack.length + exceeded.length;
+    var summary = goodCount+" su "+analyzed.length+" esercizi in linea o oltre il target"+(below.length ? ", "+below.length+" sotto." : ".");
+    var highlights = [];
+    if(best) highlights.push("↑ "+best.name+": range superato — la prossima volta alza la difficoltà (tempo lento, monolaterale, meno recupero, o più peso se disponibile).");
+    if(watch) highlights.push("↓ "+watch.name+": sotto il range questa volta — può capitare, tieni d'occhio recupero e tecnica.");
+    if(!best && !watch) highlights.push("Tutti gli esercizi registrati sono in linea con il programma. Continua così.");
+    return {summary:summary, highlights:highlights};
+  }
 
   function todayISO(){
     var d = new Date();
@@ -577,6 +716,75 @@
   var history = loadJSON("ghisa_history_v1", []);
   var bw = loadJSON("ghisa_bw_v1", []);
 
+  function startCloudSync(){
+    if(!db || !currentUser) return;
+    var docRef = db.collection("users").doc(currentUser.uid);
+    unsubscribeSnapshot = docRef.onSnapshot(function(snap){
+      if(snap.exists){
+        var data = snap.data();
+        history = data.history || [];
+        bw = data.bw || [];
+        saveJSON("ghisa_history_v1", history);
+        saveJSON("ghisa_bw_v1", bw);
+        render();
+      } else {
+        pushToCloud();
+      }
+    }, function(err){
+      console.warn("Sync non disponibile al momento, continuo in locale:", err);
+    });
+  }
+  function stopCloudSync(){
+    if(unsubscribeSnapshot){ unsubscribeSnapshot(); unsubscribeSnapshot = null; }
+  }
+  function pushToCloud(){
+    if(!db || !currentUser) return;
+    db.collection("users").doc(currentUser.uid).set({
+      history: history,
+      bw: bw,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    }).catch(function(err){
+      console.warn("Salvataggio cloud non riuscito ora, resta comunque salvato sul telefono:", err);
+    });
+  }
+
+  function authErrorMessage(err){
+    var map = {
+      "auth/invalid-email":"Email non valida.",
+      "auth/user-not-found":"Nessun account con questa email. Prova a creare un account.",
+      "auth/wrong-password":"Password errata.",
+      "auth/email-already-in-use":"Esiste già un account con questa email. Prova ad accedere.",
+      "auth/weak-password":"La password deve avere almeno 6 caratteri.",
+      "auth/invalid-credential":"Email o password non corrette.",
+      "auth/missing-password":"Scrivi una password.",
+      "auth/too-many-requests":"Troppi tentativi, riprova tra qualche minuto."
+    };
+    return (err && map[err.code]) || "Si è verificato un errore. Riprova.";
+  }
+
+  function setupAuthScreen(){
+    var emailEl = document.getElementById("authEmail");
+    var passEl = document.getElementById("authPassword");
+    var errEl = document.getElementById("authError");
+    document.getElementById("authLoginBtn").addEventListener("click", function(){
+      errEl.textContent = "";
+      auth.signInWithEmailAndPassword(emailEl.value.trim(), passEl.value)
+        .catch(function(err){ errEl.textContent = authErrorMessage(err); });
+    });
+    document.getElementById("authRegisterBtn").addEventListener("click", function(){
+      errEl.textContent = "";
+      auth.createUserWithEmailAndPassword(emailEl.value.trim(), passEl.value)
+        .catch(function(err){ errEl.textContent = authErrorMessage(err); });
+    });
+    document.getElementById("authResetBtn").addEventListener("click", function(){
+      errEl.textContent = "";
+      if(!emailEl.value.trim()){ errEl.textContent = "Scrivi la tua email qui sopra, poi premi di nuovo."; return; }
+      auth.sendPasswordResetEmail(emailEl.value.trim())
+        .then(function(){ errEl.textContent = "Email per reimpostare la password inviata."; errEl.style.color = "#175A51"; })
+        .catch(function(err){ errEl.style.color = ""; errEl.textContent = authErrorMessage(err); });
+    });
+  }
+
   var view = document.getElementById("view");
   var topbarMeta = document.getElementById("topbarMeta");
   var tabbar = document.getElementById("tabbar");
@@ -602,7 +810,15 @@
   function renderOggi(){
     var html = "";
     if(state.justSaved){
-      html += '<div class="banner">\u2713 Sessione salvata. Ottimo lavoro.</div>';
+      html += '<div class="banner">✓ Sessione salvata. Ottimo lavoro.</div>';
+      if(state.lastFeedback){
+        html += '<div class="feedback">';
+        html += '<div class="feedback__summary">'+state.lastFeedback.summary+'</div>';
+        state.lastFeedback.highlights.forEach(function(line){
+          html += '<div class="feedback__line">'+line+'</div>';
+        });
+        html += '</div>';
+      }
     }
     html += '<div class="section-title">Data</div>';
     html += '<input type="date" id="oggiDate" value="'+state.oggi.date+'" />';
@@ -618,7 +834,7 @@
 
     if(state.oggi.dayType && state.oggi.dayType!=="cardio"){
       var day = PLAN[state.oggi.dayType];
-      html += '<div class="section-title">'+day.label+' \u2014 registra le serie</div>';
+      html += '<div class="section-title">'+day.label+' — registra le serie</div>';
       html += '<div class="card">';
       day.exercises.forEach(function(ex, idx){
         html += renderExerciseInput(ex, idx);
@@ -635,7 +851,7 @@
     } else {
       html += '<div class="guide">';
       html += '<div class="guide__step"><div class="guide__num">1</div><div class="guide__text">Tocca uno dei riquadri sopra per scegliere <b>quale allenamento fai oggi</b>.</div></div>';
-      html += '<div class="guide__step"><div class="guide__num">2</div><div class="guide__text">Per ogni esercizio comparir\u00e0 <b>Serie 1, Serie 2...</b>: scrivi le ripetizioni fatte e, se usi i manubri, il peso.</div></div>';
+      html += '<div class="guide__step"><div class="guide__num">2</div><div class="guide__text">Per ogni esercizio comparirà <b>Serie 1, Serie 2...</b>: scrivi le ripetizioni fatte e, se usi i manubri, il peso.</div></div>';
       html += '<div class="guide__step"><div class="guide__num">3</div><div class="guide__text">Quando hai finito, premi <b>Salva sessione</b> in fondo alla pagina.</div></div>';
       html += '</div>';
     }
@@ -659,7 +875,7 @@
       h += '<span class="set-line__label">Serie '+(s+1)+'</span>';
       h += '<div class="set-line__group"><input type="number" inputmode="numeric" class="set-input" placeholder="0" data-ex="'+idx+'" data-set="'+s+'" data-field="reps" value="'+rv+'" /><span class="set-line__unit">'+unitLabel+'</span></div>';
       if(ex.unit!=="sec"){
-        var wPlaceholder = (ex.defaultWeight!==null) ? ex.defaultWeight : "\u2014";
+        var wPlaceholder = (ex.defaultWeight!==null) ? ex.defaultWeight : "—";
         h += '<div class="set-line__group"><input type="text" class="set-input" placeholder="'+wPlaceholder+'" data-ex="'+idx+'" data-set="'+s+'" data-field="weight" value="'+wv+'" /><span class="set-line__unit">kg</span></div>';
       }
       h += '</div>';
@@ -671,20 +887,20 @@
 
   function renderPiano(){
     var html = "";
-    html += '<div class="info-box"><b>Come si progredisce.</b> Finch\u00e9 usi sempre gli stessi 10 kg, aumenti prima le ripetizioni fino al top del range su tutte le serie, poi alzi la difficolt\u00e0 con tempo lento, esecuzione monolaterale o meno recupero. Se un giorno avrai manubri pi\u00f9 pesanti, registra qui il peso: sar\u00e0 quello il primo indicatore di progresso.</div>';
+    html += '<div class="info-box"><b>Come si progredisce.</b> Finché usi sempre gli stessi 10 kg, aumenti prima le ripetizioni fino al top del range su tutte le serie, poi alzi la difficoltà con tempo lento, esecuzione monolaterale o meno recupero. Se un giorno avrai manubri più pesanti, registra qui il peso: sarà quello il primo indicatore di progresso.</div>';
     html += '<div class="section-title">Settimana tipo</div>';
     html += '<div class="info-box" style="margin-bottom:18px;">4 sessioni pesi a settimana (es. lun / mar / gio / ven), tapis roulant 1-2 volte nei giorni liberi, 20-30 min a ritmo moderato o a intervalli.</div>';
     html += '<div class="section-title">Schede</div>';
     DAY_ORDER.forEach(function(key){
       var d = PLAN[key];
-      html += '<details class="plan-day"><summary><div><div class="plan-day__title">'+d.label+'</div><div class="plan-day__sub">'+d.sub+' \u00b7 '+d.exercises.length+' esercizi</div></div>';
+      html += '<details class="plan-day"><summary><div><div class="plan-day__title">'+d.label+'</div><div class="plan-day__sub">'+d.sub+' · '+d.exercises.length+' esercizi</div></div>';
       html += '<svg class="plan-day__chevron" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>';
       html += '<div class="plan-day__body">';
       d.exercises.forEach(function(ex){
         html += '<div class="exercise">';
         html += '<div class="exercise__head"><div class="exercise__name">'+ex.name+'</div><div class="exercise__target">'+ex.sets+'x '+ex.target+'</div></div>';
         if(ex.note) html += '<div class="exercise__note">'+ex.note+'</div>';
-        html += '<div class="exercise__rest">Recupero '+ex.rest+(ex.defaultWeight!==null ? ' \u00b7 riferimento '+ex.defaultWeight+' kg' : '')+'</div>';
+        html += '<div class="exercise__rest">Recupero '+ex.rest+(ex.defaultWeight!==null ? ' · riferimento '+ex.defaultWeight+' kg' : '')+'</div>';
         html += '</div>';
       });
       html += '</div></details>';
@@ -701,7 +917,7 @@
       return hd >= mon;
     }).length;
     var totalSessions = history.filter(function(h){return h.dayType!=="cardio";}).length;
-    var lastSession = history.length ? fmtDate(history[history.length-1].date) : "\u2014";
+    var lastSession = history.length ? fmtDate(history[history.length-1].date) : "—";
 
     html += '<div class="stat-grid">';
     html += '<div class="stat"><div class="stat__value">'+totalSessions+'</div><div class="stat__label">Sessioni tot.</div></div>';
@@ -738,6 +954,10 @@
         html += renderHistoryItem(h);
       });
     }
+    if(cloudEnabled && currentUser){
+      html += '<div class="section-title">Account</div>';
+      html += '<div class="card"><div style="font-size:13px;color:var(--text-muted);margin-bottom:12px;line-height:1.5;">Connesso come <b style="color:var(--text);">'+currentUser.email+'</b>. I dati si sincronizzano su tutti i dispositivi dove accedi con questo account.</div><button type="button" class="btn btn--ghost" id="logoutBtn">Esci</button></div>';
+    }
     view.innerHTML = html;
   }
 
@@ -758,7 +978,7 @@
     if(sorted.length>1){
       var delta = (sorted[sorted.length-1].kg - sorted[0].kg).toFixed(1);
       var cls = delta<0 ? "is-down" : (delta>0 ? "is-up" : "");
-      html += '<div class="bw-delta '+cls+'">'+(delta>0?"+":"")+delta+' kg su '+sorted.length+' pesate \u00b7 ultima: '+sorted[sorted.length-1].kg+' kg</div>';
+      html += '<div class="bw-delta '+cls+'">'+(delta>0?"+":"")+delta+' kg su '+sorted.length+' pesate · ultima: '+sorted[sorted.length-1].kg+' kg</div>';
     }
     return html;
   }
@@ -775,7 +995,7 @@
     } else {
       h.exercises.forEach(function(e){
         html += '<div class="hist__ex"><div class="hist__ex-name">'+e.name+'</div>';
-        html += '<div class="hist__ex-sets">'+(e.sets.length? e.sets.join(" \u00b7 ") : "\u2014")+'</div></div>';
+        html += '<div class="hist__ex-sets">'+(e.sets.length? e.sets.join(" · ") : "—")+'</div></div>';
       });
     }
     html += '<div class="hist__footer"><button type="button" class="btn btn--danger" data-del="'+h.id+'">Elimina</button></div>';
@@ -819,74 +1039,4 @@
     if(saveBtn) saveBtn.addEventListener("click", saveSession);
 
     var saveBwBtn = document.getElementById("saveBw");
-    if(saveBwBtn) saveBwBtn.addEventListener("click", saveBodyweight);
-
-    view.querySelectorAll("[data-del]").forEach(function(btn){
-      btn.addEventListener("click", function(e){
-        e.preventDefault();
-        var id = btn.getAttribute("data-del");
-        if(btn.classList.contains("is-confirm")){
-          history = history.filter(function(h){ return String(h.id) !== String(id); });
-          saveJSON("ghisa_history_v1", history);
-          render();
-        } else {
-          btn.classList.add("is-confirm");
-          btn.textContent = "Conferma?";
-          setTimeout(function(){
-            btn.classList.remove("is-confirm");
-            btn.textContent = "Elimina";
-          }, 2500);
-        }
-      });
-    });
-  }
-
-  function formatSet(ex, repVal, weightVal){
-    var s = repVal + (ex.unit==="sec" ? "s" : "");
-    if(ex.unit!=="sec" && weightVal){ s += " @ "+weightVal+"kg"; }
-    return s;
-  }
-
-  function saveSession(){
-    var entry = { id: Date.now(), date: state.oggi.date, dayType: state.oggi.dayType };
-    if(state.oggi.dayType==="cardio"){
-      entry.cardioMin = state.oggi.cardioMin;
-      entry.cardioNote = state.oggi.cardioNote;
-    } else {
-      var day = PLAN[state.oggi.dayType];
-      entry.exercises = day.exercises.map(function(ex, idx){
-        var rawReps = state.oggi.sets[idx] || [];
-        var rawW = state.oggi.weights[idx] || [];
-        var sets = [];
-        for(var s=0; s<ex.sets; s++){
-          var rv = rawReps[s];
-          if(rv===undefined || rv==="") continue;
-          sets.push(formatSet(ex, rv, rawW[s]));
-        }
-        return { name: ex.name, sets: sets };
-      });
-    }
-    history.push(entry);
-    saveJSON("ghisa_history_v1", history);
-    state.oggi.dayType = null;
-    resetOggiInputs();
-    state.justSaved = true;
-    render();
-  }
-
-  function saveBodyweight(){
-    var d = document.getElementById("bwDate").value || todayISO();
-    var kgRaw = document.getElementById("bwKg").value.trim().replace(",", ".");
-    var kg = parseFloat(kgRaw);
-    if(!kg || kg<=0) return;
-    bw = bw.filter(function(x){ return x.date !== d; });
-    bw.push({date:d, kg:kg});
-    saveJSON("ghisa_bw_v1", bw);
-    render();
-  }
-
-  render();
-})();
-</script>
-</body>
-</html>
+    if(saveBwBtn) saveBwBtn.addEventListener
