@@ -1039,4 +1039,102 @@
     if(saveBtn) saveBtn.addEventListener("click", saveSession);
 
     var saveBwBtn = document.getElementById("saveBw");
-    if(saveBwBtn) saveBwBtn.addEventListener
+    if(saveBwBtn) saveBwBtn.addEventListener("click", saveBodyweight);
+
+    var logoutBtn = document.getElementById("logoutBtn");
+    if(logoutBtn) logoutBtn.addEventListener("click", function(){ if(auth) auth.signOut(); });
+
+    view.querySelectorAll("[data-del]").forEach(function(btn){
+      btn.addEventListener("click", function(e){
+        e.preventDefault();
+        var id = btn.getAttribute("data-del");
+        if(btn.classList.contains("is-confirm")){
+          history = history.filter(function(h){ return String(h.id) !== String(id); });
+          saveJSON("ghisa_history_v1", history);
+          pushToCloud();
+          render();
+        } else {
+          btn.classList.add("is-confirm");
+          btn.textContent = "Conferma?";
+          setTimeout(function(){
+            btn.classList.remove("is-confirm");
+            btn.textContent = "Elimina";
+          }, 2500);
+        }
+      });
+    });
+  }
+
+  function formatSet(ex, repVal, weightVal){
+    var s = repVal + (ex.unit==="sec" ? "s" : "");
+    if(ex.unit!=="sec" && weightVal){ s += " @ "+weightVal+"kg"; }
+    return s;
+  }
+
+  function saveSession(){
+    var entry = { id: Date.now(), date: state.oggi.date, dayType: state.oggi.dayType };
+    if(state.oggi.dayType==="cardio"){
+      entry.cardioMin = state.oggi.cardioMin;
+      entry.cardioNote = state.oggi.cardioNote;
+      state.lastFeedback = null;
+    } else {
+      var day = PLAN[state.oggi.dayType];
+      state.lastFeedback = buildFeedback(day);
+      entry.exercises = day.exercises.map(function(ex, idx){
+        var rawReps = state.oggi.sets[idx] || [];
+        var rawW = state.oggi.weights[idx] || [];
+        var sets = [];
+        for(var s=0; s<ex.sets; s++){
+          var rv = rawReps[s];
+          if(rv===undefined || rv==="") continue;
+          sets.push(formatSet(ex, rv, rawW[s]));
+        }
+        return { name: ex.name, sets: sets };
+      });
+    }
+    history.push(entry);
+    saveJSON("ghisa_history_v1", history);
+    pushToCloud();
+    state.oggi.dayType = null;
+    resetOggiInputs();
+    state.justSaved = true;
+    render();
+  }
+
+  function saveBodyweight(){
+    var d = document.getElementById("bwDate").value || todayISO();
+    var kgRaw = document.getElementById("bwKg").value.trim().replace(",", ".");
+    var kg = parseFloat(kgRaw);
+    if(!kg || kg<=0) return;
+    bw = bw.filter(function(x){ return x.date !== d; });
+    bw.push({date:d, kg:kg});
+    saveJSON("ghisa_bw_v1", bw);
+    pushToCloud();
+    render();
+  }
+
+  var authScreenEl = document.getElementById("authScreen");
+  var appEl = document.getElementById("app");
+
+  if(cloudEnabled){
+    setupAuthScreen();
+    auth.onAuthStateChanged(function(user){
+      currentUser = user;
+      if(user){
+        authScreenEl.style.display = "none";
+        appEl.style.display = "";
+        startCloudSync();
+        render();
+      } else {
+        stopCloudSync();
+        appEl.style.display = "none";
+        authScreenEl.style.display = "flex";
+      }
+    });
+  } else {
+    render();
+  }
+})();
+</script>
+</body>
+</html>
